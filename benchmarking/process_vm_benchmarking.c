@@ -9,6 +9,8 @@
 #include <sys/types.h>
 #include "process-vm-benchmarking.h"
 
+
+#define meg     1000000
 /* 
     The following code sample demonstrates the use of 
     process_vm_readv().
@@ -97,7 +99,6 @@ int do_vm_rwv(pid_t proc, char **localdata, char** remotedata, int readwrite)
 	return nread;
 }
 
-
 int main(int argc, char *argv[]) 
 {   
     if (parse_options(argc, argv) < 0)
@@ -155,7 +156,8 @@ int main(int argc, char *argv[])
 		printf("---------------------------------------------\n");
         double first_result = time_calc(end, start, name);
 
-        
+        printf("The frequency is eqals to(Mbps): %f .\n", (double)((2* K_MULTIPLY*SPLICE_SIZE)/(first_result*meg)));
+
         char* endfs = "done.";
 		write(fd[1], &endfs, sizeof(char**));
 
