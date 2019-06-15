@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -46,9 +47,10 @@ static int parse_options(int argc, char *argv[])
 	return index;
 }
 
+
+
 int do_vm_rwv(pid_t proc, char **localdata, char** remotedata, int readwrite)
 {
-    printf("here");
     int page_counter = K_MULTIPLY - 1;
 	struct iovec localiov[] = {
 		{
@@ -99,6 +101,12 @@ int do_vm_rwv(pid_t proc, char **localdata, char** remotedata, int readwrite)
 	return nread;
 }
 
+void sighup() 
+{ 
+    signal(SIGHUP, sighup); /* reset signal */
+    printf("CHILD: I have received a SIGHUP\n"); 
+}
+
 int main(int argc, char *argv[]) 
 {   
     if (parse_options(argc, argv) < 0)
@@ -106,8 +114,12 @@ int main(int argc, char *argv[])
 
 	ssize_t nread;
 	char* name;
-	int pip[2], child_pipe[2], fd[2];
-	if (pipe(child_pipe) < 0 || pipe(pip) < 0 || pipe(fd) < 0) 
+	char** dataset = initializer();
+    char** mydata = empty_allocator();
+	char** hm = empty_allocator();
+
+	int pip[2], child_pipe_first[2], child_pipe_second[2], fd[2];
+	if (pipe(child_pipe_second) < 0 || pipe(child_pipe_first) < 0 || pipe(pip) < 0 || pipe(fd) < 0) 
 		exit(1);
 
 	pid_t   childpid;
@@ -120,57 +132,81 @@ int main(int argc, char *argv[])
 	{
 		/* First Child process closes up input side of pipe. */
 		name = "First Child";
-		close(pip[0]);
-		close(child_pipe[0]);
-        pid_t mypid = getpid();
-		write(child_pipe[1], &mypid, sizeof(mypid));
+		pid_t second_child;
+		pid_t mypid = getpid();
 
-        char** mydata = empty_allocator();
-        write(pip[1], &mydata, sizeof(char**));
+		write(child_pipe_first[1], &mypid, sizeof(pid_t));
+		read(child_pipe_second[0], &second_child, sizeof(pid_t));
+		// mydata[0] = "Start";
+		write(pip[1], &mydata, sizeof(char **));
 
-        char *endfs = NULL;
-        read(fd[0], &endfs, sizeof(char**));
-        printf("%s", endfs);
+		start = clocker(0, name);
+		signal(SIGHUP, sighup);
+		pause();
+		end = clocker(1, name);
 
+        write(pip[1], &start, sizeof(clock_t));
+        write(pip[1], &end, sizeof(clock_t));
+		// signal(SIGHUP, sighup);
+		// pause();
 		exit(0);
 	}
 	else
 	{
-        /* Parent process closes up output side of pipe */
-        name = "Parent";
-       
-        pid_t childpid;
-        char **rdata;
-		read(child_pipe[0], &childpid, sizeof(childpid));
-		read(pip[0], &rdata, sizeof(char**));
-        
-		printf("---------------------------------------------\n");
-        char** dataset = initializer();
-        char** hm = empty_allocator();
+		pid_t   child_2_pid;
+		if((child_2_pid = fork()) == -1)
+		{
+			perror("fork");
+			exit(1);
+		}
+		if(child_2_pid == 0)
+		{
+        	name = "Second Child"; 
+			
+			pid_t first_child;
+			read(child_pipe_first[0], &first_child, sizeof(pid_t));
+        	
+			pid_t mypid = getpid();
+			write(child_pipe_second[1], &mypid, sizeof(pid_t));
 
-        start = clocker(0, name);
-		nread = do_vm_rwv(childpid, dataset, rdata, 1);
-		nread = do_vm_rwv(childpid, hm, rdata, 0);
-		end = clocker(1, name);
-        printf("[%s,\n%s],\n\n [%s,\n%s].\n ",dataset[0], hm[0], dataset[5], hm[5]);
-		printf("---------------------------------------------\n");
-        double first_result = time_calc(end, start, name);
+			char **rdata;
+			read(pip[0], &rdata, sizeof(char**));
 
-        printf("The frequency is eqals to(Mbps): %f .\n", (double)((2* K_MULTIPLY*SPLICE_SIZE)/(first_result*meg)));
+			start = clocker(0, name);
+			nread = do_vm_rwv(first_child, dataset, rdata, 1);
+			kill(first_child, SIGHUP);
 
-        char* endfs = "done.";
-		write(fd[1], &endfs, sizeof(char**));
+			// size_t nread2 = do_vm_rwv(first_child, hm, rdata, 0);
+			// kill(first_child, SIGHUP);
 
-        int child1_status;
-        waitpid(childpid, &child1_status, 0);
 
-        if (child1_status == 0)  // Verify child process terminated without error. 
-        {
-            printf("The child process terminated normally.\n");    
-        }
-        else{printf("The child process terminated with an error!.\n");}
+			clock_t sstart;
+			read(pip[0], &sstart, sizeof(clock_t));
+			read(pip[0], &end, sizeof(clock_t));
+			printf("---------------------------------------------\n");
+			// printf("[%s,\n%s],\n\n[%s,\n%s].\n ",dataset[0], hm[0], dataset[5], hm[5]);
+			double first_result = time_calc(end, start, name);
+			printf("The frequency is eqals to(Mbps): %f .\n", (double)((K_MULTIPLY*SPLICE_SIZE)/(first_result*meg)));
+        	
+			exit(0);
+		}
+		else
+		{
+			/* Parent process closes up output side of pipe */
+        	name = "Parent"; 
+			int child1_status, child2_status;
+			waitpid(childpid, &child1_status, 0);
+			waitpid(child_2_pid, &child2_status, 0);
 
-        exit(0);
+			if (child1_status == 0 && child2_status == 0)  // Verify child process terminated without error. 
+			{
+				printf("The child process terminated normally.\n");    
+			}
+			else{printf("The child process terminated with an error!.\n");}
+	        
+			exit(0);
+		}
+
 	}
     return 0;
 }

@@ -24,10 +24,8 @@
 #include <sys/uio.h>
 
 
-
-
 #define SPLICE_SIZE  1024
-#define K_MULTIPLY   40000
+#define K_MULTIPLY   80000
 
 
 #if defined(__i386__)
