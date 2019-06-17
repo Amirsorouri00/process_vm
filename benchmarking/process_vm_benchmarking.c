@@ -144,6 +144,7 @@ int main(int argc, char *argv[])
 		signal(SIGHUP, sighup);
 		pause();
 		end = clocker(1, name);
+		printf("in %s and mydata: %s\n\n.", name, mydata[11000]);
 
         write(pip[1], &start, sizeof(clock_t));
         write(pip[1], &end, sizeof(clock_t));
@@ -175,10 +176,10 @@ int main(int argc, char *argv[])
 			start = clocker(0, name);
 			nread = do_vm_rwv(first_child, dataset, rdata, 1);
 			kill(first_child, SIGHUP);
+			printf("in %s and dataset: %s\n.", name, dataset[11000]);
 
 			// size_t nread2 = do_vm_rwv(first_child, hm, rdata, 0);
 			// kill(first_child, SIGHUP);
-
 
 			clock_t sstart;
 			read(pip[0], &sstart, sizeof(clock_t));
